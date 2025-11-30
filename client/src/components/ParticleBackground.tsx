@@ -1,152 +1,220 @@
 import { useEffect, useRef } from 'react';
+import * as THREE from 'three';
 
-interface Particle {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  size: number;
-  alpha: number;
-}
-
-interface ParticleBackgroundProps {
-  className?: string;
-}
-
-export default function ParticleBackground({ className = '' }: ParticleBackgroundProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const particlesRef = useRef<Particle[]>([]);
-  const mouseRef = useRef<{ x: number | null; y: number | null }>({ x: null, y: null });
-  const animationFrameRef = useRef<number>();
+const ParticleBackground = () => {
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!containerRef.current) return;
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const SEPARATION = 100;
+    const AMOUNTX = 50;
+    const AMOUNTY = 50;
 
-    const NUM_PARTICLES = 250;
+    const container = containerRef.current;
+    let camera: THREE.PerspectiveCamera;
+    let scene: THREE.Scene;
+    let renderer: THREE.WebGLRenderer;
 
-    function resize() {
-      if (!canvas) return;
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight * 0.6; // cover the contact section
-    }
+    let count = 0;
+    let time = 0;
 
-    function initParticles() {
-      if (!canvas) return;
-      particlesRef.current = [];
-      for (let i = 0; i < NUM_PARTICLES; i++) {
-        particlesRef.current.push({
-          x: Math.random() * canvas.width,
-          y: Math.random() * canvas.height,
-          vx: (Math.random() - 0.5) * 0.1, // tiny sideways motion
-          vy: -0.05 - Math.random() * 0.1, // drifting upward
-          size: 1 + Math.random() * 1.5,
-          alpha: 0.2 + Math.random() * 0.4,
-        });
-      }
-    }
+    let mouseX = 0;
+    let mouseY = 0;
 
-    function applyMouseForce(p: Particle) {
-      const mouse = mouseRef.current;
-      if (mouse.x == null || mouse.y == null) return;
+    let windowHalfX = window.innerWidth / 2;
+    let windowHalfY = window.innerHeight / 2;
 
-      const dx = p.x - mouse.x;
-      const dy = p.y - mouse.y;
-      const dist2 = dx * dx + dy * dy;
-      const radius = 140 * 140; // interaction radius squared
+    const onWindowResize = () => {
+      windowHalfX = window.innerWidth / 2;
+      windowHalfY = window.innerHeight / 2;
 
-      if (dist2 < radius) {
-        const force = (radius - dist2) / radius * 0.15;
-        p.vx += (dx / Math.sqrt(dist2 + 1)) * force;
-        p.vy += (dy / Math.sqrt(dist2 + 1)) * force;
-      }
-    }
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
 
-    function tick() {
-      if (!ctx || !canvas) return;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      for (const p of particlesRef.current) {
-        // Apply mouse force
-        applyMouseForce(p);
-
-        // Update position
-        p.x += p.vx;
-        p.y += p.vy;
-
-        // Add damping to velocities
-        p.vx *= 0.98;
-        p.vy *= 0.98;
-
-        // Restore upward drift
-        p.vy += -0.002;
-
-        // Wrap around edges
-        if (p.y < 0) p.y = canvas.height;
-        if (p.x < 0) p.x = canvas.width;
-        if (p.x > canvas.width) p.x = 0;
-
-        // Draw particle
-        ctx.globalAlpha = p.alpha;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      animationFrameRef.current = requestAnimationFrame(tick);
-    }
-
-    // Set fill style for particles (white with low opacity for visibility on primary bg)
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-
-    // Add slight blur for softer appearance
-    ctx.shadowBlur = 2;
-    ctx.shadowColor = 'rgba(255, 255, 255, 0.3)';
-
-    resize();
-    initParticles();
-    tick();
-
-    // Event listeners
-    window.addEventListener('resize', () => {
-      resize();
-      initParticles();
-    });
-
-    const handlePointerMove = (e: PointerEvent) => {
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      mouseRef.current.x = e.clientX - rect.left;
-      mouseRef.current.y = e.clientY - rect.top;
+      renderer.setSize(window.innerWidth, window.innerHeight);
     };
 
-    const handlePointerLeave = () => {
-      mouseRef.current.x = null;
-      mouseRef.current.y = null;
+    const onDocumentMouseMove = (event: MouseEvent) => {
+      mouseX = event.clientX - windowHalfX;
+      mouseY = event.clientY - windowHalfY;
     };
 
-    canvas.addEventListener('pointermove', handlePointerMove);
-    canvas.addEventListener('pointerleave', handlePointerLeave);
+    const onDocumentTouchStart = (event: TouchEvent) => {
+      if (event.touches.length === 1) {
+        event.preventDefault();
+        mouseX = event.touches[0].pageX - windowHalfX;
+        mouseY = event.touches[0].pageY - windowHalfY;
+      }
+    };
+
+    const onDocumentTouchMove = (event: TouchEvent) => {
+      if (event.touches.length === 1) {
+        event.preventDefault();
+        mouseX = event.touches[0].pageX - windowHalfX;
+        mouseY = event.touches[0].pageY - windowHalfY;
+      }
+    };
+
+    const initWebGL = () => {
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 10000);
+      camera.position.z = 1000;
+      camera.position.y = 400;
+
+      scene = new THREE.Scene();
+
+      const numParticles = AMOUNTX * AMOUNTY;
+      const positions = new Float32Array(numParticles * 3);
+      const scales = new Float32Array(numParticles);
+
+      let i = 0, j = 0;
+
+      for (let ix = 0; ix < AMOUNTX; ix++) {
+        for (let iy = 0; iy < AMOUNTY; iy++) {
+          positions[i] = ix * SEPARATION - ((AMOUNTX * SEPARATION) / 2); // x
+          positions[i + 1] = 0; // y
+          positions[i + 2] = iy * SEPARATION - ((AMOUNTY * SEPARATION) / 2); // z
+
+          scales[j] = 1;
+
+          i += 3;
+          j++;
+        }
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute('scale', new THREE.BufferAttribute(scales, 1));
+
+      const material = new THREE.ShaderMaterial({
+        uniforms: {
+          color: { value: new THREE.Color(0x38bdf8) },
+        },
+        vertexShader: `
+                    attribute float scale;
+                    void main() {
+                        vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+                        gl_PointSize = scale * ( 300.0 / - mvPosition.z ) * 1.5; // Increased size multiplier
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+        fragmentShader: `
+                    uniform vec3 color;
+                    void main() {
+                        // Circular particle logic
+                        vec2 center = gl_PointCoord - vec2(0.5);
+                        float dist = length(center);
+                        if ( dist > 0.5 ) discard;
+                        
+                        // Optional: Soft edge
+                        // float alpha = 1.0 - smoothstep(0.4, 0.5, dist);
+                        // gl_FragColor = vec4( color, alpha );
+                        
+                        gl_FragColor = vec4( color, 1.0 );
+                    }
+                `,
+        transparent: true
+      });
+
+      const particlesMesh = new THREE.Points(geometry, material);
+      scene.add(particlesMesh);
+
+      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      container.appendChild(renderer.domElement);
+
+      // Store reference for animation
+      (scene as any).userData = { particlesMesh, positions, scales, originalZ: positions.slice() };
+
+      document.addEventListener('mousemove', onDocumentMouseMove, false);
+      document.addEventListener('touchstart', onDocumentTouchStart, false);
+      document.addEventListener('touchmove', onDocumentTouchMove, false);
+      window.addEventListener('resize', onWindowResize, false);
+    };
+
+    const renderWebGL = () => {
+      // Mouse parallax
+      camera.position.x += (mouseX - camera.position.x) * 0.05;
+      camera.position.y += (-mouseY + 200 - camera.position.y) * 0.05;
+
+      camera.lookAt(scene.position);
+
+      const positions = (scene as any).userData.positions;
+      const scales = (scene as any).userData.scales;
+      const particlesMesh = (scene as any).userData.particlesMesh;
+
+      // Infinite movement logic
+      const speed = 2.0; // Continuous forward speed
+      const scrollSpeed = window.scrollY * 0.5; // Scroll adds to speed/position
+      const totalMovement = (time * speed) + scrollSpeed;
+
+      // Grid depth
+      const depth = AMOUNTY * SEPARATION;
+      const halfDepth = depth / 2;
+
+      let i = 0, j = 0;
+
+      for (let ix = 0; ix < AMOUNTX; ix++) {
+        for (let iy = 0; iy < AMOUNTY; iy++) {
+          // Update Y position based on sine wave
+          positions[i + 1] = (Math.sin((ix + count) * 0.3) * 50) + (Math.sin((iy + count) * 0.5) * 50);
+
+          // Update Scale
+          scales[j] = (Math.sin((ix + count) * 0.3) + 1) * 8 + (Math.sin((iy + count) * 0.5) + 1) * 8;
+
+          // Update Z position for infinite scrolling
+          // Original Z + movement, wrapped around the depth
+          let z = (iy * SEPARATION) - halfDepth + totalMovement;
+
+          // Wrap logic: if z > boundary, wrap to back
+          // We want them to move towards camera (+Z)
+          // So if they get too close (e.g. > 1000), wrap to -4000
+          // Or simpler: modulo arithmetic
+
+          // Shift range to [0, depth] for modulo, then shift back
+          z = ((z + halfDepth) % depth) - halfDepth;
+
+          // If negative modulo result (can happen in JS), fix it
+          if (z < -halfDepth) z += depth;
+
+          positions[i + 2] = z;
+
+          i += 3;
+          j++;
+        }
+      }
+
+      particlesMesh.geometry.attributes.position.needsUpdate = true;
+      particlesMesh.geometry.attributes.scale.needsUpdate = true;
+
+      renderer.render(scene, camera);
+
+      count += 0.1;
+      time += 1;
+    }
+
+    initWebGL();
+
+    const animateWebGL = () => {
+      requestAnimationFrame(animateWebGL);
+      renderWebGL();
+    }
+
+    animateWebGL();
 
     return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
+      if (container && renderer.domElement) {
+        container.removeChild(renderer.domElement);
       }
-      window.removeEventListener('resize', resize);
-      canvas?.removeEventListener('pointermove', handlePointerMove);
-      canvas?.removeEventListener('pointerleave', handlePointerLeave);
+      document.removeEventListener('mousemove', onDocumentMouseMove);
+      document.removeEventListener('touchstart', onDocumentTouchStart);
+      document.removeEventListener('touchmove', onDocumentTouchMove);
+      window.removeEventListener('resize', onWindowResize);
     };
   }, []);
 
-  return (
-    <canvas
-      ref={canvasRef}
-      className={`absolute inset-0 pointer-events-auto ${className}`}
-      style={{ filter: 'blur(0.5px)' }}
-    />
-  );
-}
+  return <div ref={containerRef} className="fixed inset-0 -z-10 bg-[#0f172a]" />;
+};
+
+export default ParticleBackground;

@@ -36,7 +36,7 @@ export default defineConfig(async () => {
       emptyOutDir: true,
     },
     server: {
-      port: 3000,
+      port: 4500,
       strictPort: false,
       host: true,
       allowedHosts: [
